@@ -82,7 +82,7 @@ NSString *kCTCFeedCheckerErrorDomain = @"com.giorgiocalderolla.Catch.CatchFeedHe
           toBookmark:(NSData *)downloadFolderBookmark
   organizingByFolder:(BOOL)shouldOrganizeByFolder
            withReply:(CTCFeedCheckDownloadCompletionHandler)reply {
-    NSLog(@"Downloading single file: %@", file[@"url"]);
+    NSLog(@"Downloading single file");
     
     NSError *error = nil;
     
@@ -154,19 +154,15 @@ NSString *kCTCFeedCheckerErrorDomain = @"com.giorgiocalderolla.Catch.CatchFeedHe
         
         // The file is new, open magnet or download torrent
         if (isMagnetLink) {
-            NSLog(@"Magnet: %@ at: %@", file[@"title"], url);
-            
             [successfullyDownloadedFeedFiles addObject:@{@"url": file[@"url"],
                                                          @"title": file[@"title"],
                                                          @"isMagnetLink": @YES}];
         }
         else {
-            NSLog(@"File: %@ at: %@", file[@"title"], url);
-            
             // First get the folder, if we want it and it's available
             NSString *showName = shouldOrganizeByFolder && ![file[@"showName"] isEqualTo:NSNull.null] ? file[@"showName"] : nil;
             
-            NSString *downloadedTorrentFile = [self downloadFile:[NSURL URLWithString:url]
+            NSString *downloadedTorrentFile = [self downloadFile:file
                                                           toPath:downloadPath
                                                     withShowName:showName
                                                            error:&error];
@@ -186,20 +182,22 @@ NSString *kCTCFeedCheckerErrorDomain = @"com.giorgiocalderolla.Catch.CatchFeedHe
     return successfullyDownloadedFeedFiles.copy;
 }
 
-- (NSString *)downloadFile:(NSURL *)fileURL
+- (NSString *)downloadFile:(NSDictionary *)file
                     toPath:(NSString *)downloadPath
               withShowName:(NSString *)showName
                      error:(NSError * __autoreleasing *)outError {
-    NSString *folder = [CTCFileUtils folderNameForShowWithName:showName];
+    NSString *folder = [CTCFileUtils fileNameFromString:showName];
     
-    if (folder) NSLog(@"Downloading file %@ in folder %@",fileURL,folder);
-    else NSLog(@"Downloading file %@",fileURL);
+    if (folder) NSLog(@"Downloading file to folder %@", folder);
+    else NSLog(@"Downloading file");
     
     NSError *error = nil;
+
+    NSURL *fileURL = [NSURL URLWithString:file[@"url"]];
     
     // Download!
     NSURLRequest *urlRequest = [[NSURLRequest alloc] initWithURL:fileURL];
-    NSURLResponse *urlResponse = NSURLResponse.new;
+    NSHTTPURLResponse *urlResponse = NSHTTPURLResponse.new;
     NSData *downloadedFile = [NSURLConnection sendSynchronousRequest:urlRequest
                                            returningResponse:&urlResponse
                                                        error:&error];
@@ -212,10 +210,18 @@ NSString *kCTCFeedCheckerErrorDomain = @"com.giorgiocalderolla.Catch.CatchFeedHe
         return nil;
     }
     
+    if (urlResponse.statusCode != 200) {
+        NSString *errorDescription = [NSString stringWithFormat:@"Could not download file (bad status code %ld)", (long)urlResponse.statusCode];
+        *outError = [NSError errorWithDomain:kCTCFeedCheckerErrorDomain
+                                        code:-7
+                                    userInfo:@{NSLocalizedDescriptionKey: errorDescription}];
+        return nil;
+    }
+    
     NSLog(@"Download complete, filesize: %lu", (unsigned long)downloadedFile.length);
     
-    // Get the suggested filename, append extension if needed
-    NSString *filename = [CTCFileUtils addTorrentExtensionTo:urlResponse.suggestedFilename];
+    // Try to get a nice filename, fall back on the suggested one, append extension if needed
+    NSString *filename = [CTCFileUtils torrentFilenameFromString:file[@"title"] ?: urlResponse.suggestedFilename];
     
     // Compute destination path
     NSArray *pathComponents = downloadPath.pathComponents;
@@ -223,8 +229,6 @@ NSString *kCTCFeedCheckerErrorDomain = @"com.giorgiocalderolla.Catch.CatchFeedHe
     NSString *pathAndFolder = [NSString pathWithComponents:pathComponents].stringByStandardizingPath;
     pathComponents = [pathComponents arrayByAddingObject:filename];
     NSString *pathAndFilename = [NSString pathWithComponents:pathComponents].stringByStandardizingPath;
-    
-    NSLog(@"Computed file destination %@", pathAndFilename);
     
     // Check if the destination dir exists, if it doesn't create it
     BOOL pathAndFolderIsDirectory = NO;
