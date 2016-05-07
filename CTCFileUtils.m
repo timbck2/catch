@@ -47,7 +47,7 @@ static NSString * const kCTCFileUtilsTorrentExtension = @".torrent";
     NSString *filename = fileURL.path.pathComponents.lastObject;
     
     // Reverse urlencode
-    return [filename stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+    return [filename stringByRemovingPercentEncoding];
 }
 
 + (NSString *)torrentFilenameFromString:(NSString*)name {
